@@ -1,4 +1,3 @@
-import type { Metadata } from "next";
 import { AuthProvider } from "@/context/auth-context";
 import { CartProvider } from "@/context/cart-context";
 import { LocationProvider } from "@/context/location-context";
@@ -8,12 +7,6 @@ import { CartSidebar } from "@/components/storefront/cart-sidebar";
 import { Footer } from "@/components/storefront/footer";
 import { Header } from "@/components/storefront/header";
 import { LocationSelector } from "@/components/storefront/location-selector";
-
-export const metadata: Metadata = {
-  title: {
-    default: "Fiestaa — Order Online",
-  },
-};
 
 export default async function StorefrontLayout({
   children,

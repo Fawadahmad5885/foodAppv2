@@ -13,6 +13,8 @@ import "swiper/css/pagination";
 const CAROUSEL_IMAGES = [
   "/images/carousel/carousel1.jpg",
   "/images/carousel/carousel2.jpg",
+  // "/images/carousel/carousel3.jpg",
+  // "/images/carousel/carousel4.jpg",
 ];
 
 const arrowButtonClass =

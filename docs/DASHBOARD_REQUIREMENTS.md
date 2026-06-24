@@ -13,7 +13,22 @@ Fiesta is a multi-tenant food ordering platform. Today the **storefront** is imp
 | Surface | Audience | Scope |
 |--------|----------|--------|
 | **Super Admin Dashboard** | Platform operators (`SUPER_ADMIN`) | All tenants, platform config, cross-tenant visibility |
-| **Vendor Dashboard** | Restaurant operators (`VENDOR_OWNER`, `VENDOR_STAFF`) | Single-tenant operations: menu, orders, promos, team |
+| **Vendor Dashboard** | Restaurant operators (`VENDOR_OWNER`, `VENDOR_STAFF`) | Single-tenant operations: orders, menu, add-ons, collections, promos, branches, storefront (theme + hero), team |
+
+**Vendor capability summary (v1 target):**
+
+| Capability | Module | Status in doc |
+|------------|--------|---------------|
+| Manage live orders & history | Orders | §5.3 |
+| Menu items (categories, products, variants, images) | Menu | §5.4–5.5 |
+| Add-ons (extras, toppings, sides) | Menu → Add-ons | §5.6 |
+| Collections (curated product groups) | Menu → Collections | §5.7 |
+| Combos / bundle deals | Menu → Combos | §5.8 |
+| Discounts & promo codes | Promotions | §5.11 |
+| Multiple branches & delivery areas | Branches | §5.12 |
+| Storefront theme & colors | Storefront → Theme | §5.13 |
+| Hero carousel / swiper images | Storefront → Hero | §5.14 |
+| Tax, team, customers, reports | Supporting modules | §5.15–5.19 |
 
 ### 1.1 Goals
 
@@ -31,6 +46,9 @@ Fiesta is a multi-tenant food ordering platform. Today the **storefront** is imp
 | Guest + registered checkout | ✅ Live |
 | Vendor / Admin dashboards | ❌ Not started |
 | Branches & delivery areas | ⚠️ Hardcoded in `lib/locations.ts` (not in DB) |
+| Hero carousel images | ⚠️ Hardcoded in `components/storefront/hero.tsx` (`CAROUSEL_IMAGES`) |
+| Storefront theme (colors, branding) | ⚠️ Global CSS vars in `globals.css` — not per-tenant |
+| Collections (curated product groups) | ❌ Not in schema or storefront |
 | Payments | ⚠️ Schema exists (`PaymentIntent`, `Transaction`); no UI/integration yet |
 
 ### 1.3 Proposed route structure
@@ -45,6 +63,8 @@ app/
 │       │   ├── page                 # Overview
 │       │   ├── orders/...
 │       │   ├── menu/...
+│       │   ├── branches/...
+│       │   ├── storefront/...   # theme, hero
 │       │   └── ...
 └── (admin)/               # Super admin dashboard
     └── admin/
@@ -57,7 +77,7 @@ app/
 
 **URL conventions (suggested):**
 
-- Vendor: `/vendor`, `/vendor/orders`, `/vendor/menu/products`
+- Vendor: `/vendor`, `/vendor/orders`, `/vendor/menu/products`, `/vendor/menu/add-ons`, `/vendor/menu/collections`, `/vendor/branches`, `/vendor/storefront/theme`, `/vendor/storefront/hero`
 - Admin: `/admin`, `/admin/tenants`, `/admin/users`
 
 ---
@@ -91,8 +111,12 @@ A user must have **both** a vendor platform role (`VENDOR_OWNER` or `VENDOR_STAF
 | Orders — cancel / refund | ✅ | ❌ |
 | Menu — categories | ✅ | 👁️ optional |
 | Menu — products | ✅ | 👁️ optional |
-| Menu — modifiers & combos | ✅ | ❌ |
+| Menu — add-ons (modifiers) & combos | ✅ | ❌ |
+| Menu — collections | ✅ | 👁️ optional |
 | Promotions / discounts | ✅ | ❌ |
+| Branches & delivery areas | ✅ | 👁️ optional |
+| Storefront — theme & branding | ✅ | ❌ |
+| Storefront — hero carousel | ✅ | ❌ |
 | Tax categories | ✅ | ❌ |
 | Team / staff | ✅ | ❌ |
 | Store settings & domains | ✅ | ❌ |
@@ -154,9 +178,17 @@ Admin Dashboard
 ├── Customers
 ├── Orders (cross-tenant)
 ├── Platform Settings
+│   └── Theme presets (defaults for new tenants)
 ├── Audit Log
 └── Reports
 ```
+
+**Super Admin responsibilities (summary):**
+
+- Full lifecycle of tenants, domains, and platform users.
+- Cross-tenant read access to orders, customers, and aggregate reports.
+- Read-only visibility into each tenant's storefront config (theme, hero slides, branches) from the tenant detail page — vendors own day-to-day edits.
+- Platform-wide defaults (currency, onboarding, optional theme presets) — not per-order operations.
 
 ---
 
@@ -212,7 +244,9 @@ Admin Dashboard
 - Linked domains list.
 - Owner user(s) from `TenantMembership` where `role = OWNER`.
 - Order stats for this tenant.
-- Quick actions: impersonate vendor (future), suspend.
+- **Storefront snapshot (read-only):** active theme preset / custom colors, hero slide count + preview thumbnails, branch count, collection count, active discount count.
+- **Branches tab (read-only v1):** list branches and delivery areas configured by the vendor.
+- Quick actions: open storefront preview (new tab), impersonate vendor (future), suspend.
 
 ---
 
@@ -306,6 +340,13 @@ Admin Dashboard
 | `defaults.currency` | string | e.g. USD |
 | `defaults.tax_inclusive` | boolean | Pricing display default |
 | `onboarding.auto_approve_tenants` | boolean | Skip PENDING status |
+| `defaults.theme_preset` | string | Default storefront palette for new tenants |
+| `defaults.max_hero_slides` | number | Platform cap on carousel slides per tenant (e.g. 8) |
+
+**Theme presets subsection**
+
+- CRUD for named platform presets (e.g. "Classic Amber", "Dark Kitchen") — each preset stores primary, secondary, background, foreground, menu-accent hex values.
+- New tenants inherit `defaults.theme_preset` until the vendor overrides in their dashboard.
 
 **UI:** Grouped sections, JSON editor for advanced keys.
 
@@ -360,17 +401,24 @@ Vendor Dashboard
 ├── Menu
 │   ├── Categories
 │   ├── Products
-│   ├── Modifiers
+│   ├── Add-ons (modifiers)
+│   ├── Collections
 │   ├── Combos
 │   ├── Tags
 │   └── Allergens
 ├── Promotions
+├── Branches & areas
+├── Storefront
+│   ├── Theme & branding
+│   └── Hero carousel
 ├── Tax
 ├── Customers
 ├── Team
 ├── Store Settings
 └── Reports
 ```
+
+> **Terminology:** In the vendor UI, **Add-ons** is the operator-facing label for `ModifierGroup` / `ModifierOption` (extras, sauces, toppings, sides). The data model keeps the existing modifier names.
 
 ---
 
@@ -482,9 +530,11 @@ Each transition writes to `OrderStatusHistory`.
 
 ---
 
-### 5.6 Menu — Modifiers — `/vendor/menu/modifiers`
+### 5.6 Menu — Add-ons — `/vendor/menu/add-ons`
 
-**Purpose:** Modifier groups and options (e.g. "Choose your sauce").
+**Purpose:** Modifier groups and options — presented in the dashboard as **Add-ons** (e.g. "Choose your sauce", "Extra toppings", "Select a side").
+
+> **Route alias:** `/vendor/menu/modifiers` may redirect here for consistency with the Prisma model names in code.
 
 **List:** group name, option count, min/max selections, required, active.
 
@@ -492,9 +542,41 @@ Each transition writes to `OrderStatusHistory`.
 
 **Options (nested):** `name`, `description`, `price`, `calories`, `isDefault`, `isActive`, `sortOrder`.
 
+**Product assignment:** From the product edit screen or a bulk "Attach add-ons" action — link groups via `ProductModifierGroup` with per-product `sortOrder`.
+
+**Storefront behavior:** Selected add-ons appear in the product modal on the customer site; prices roll into line-item totals at checkout.
+
 ---
 
-### 5.7 Menu — Combos — `/vendor/menu/combos`
+### 5.7 Menu — Collections — `/vendor/menu/collections`
+
+**Purpose:** Curated, cross-category product groups for merchandising (e.g. "Chef's Picks", "Spicy Favorites", "Weekend Specials"). Distinct from **Categories** (menu structure) and **Combos** (bundled pricing).
+
+**List columns:** name, slug, product count, featured on homepage, active, sort order.
+
+**Create / Edit form**
+
+| Field | Required | Notes |
+|-------|:--------:|-------|
+| name | ✅ | Display title |
+| slug | ✅ | URL-safe; used for `/#collection-{slug}` anchor |
+| description | | Optional subtitle on storefront |
+| imageUrl | | Optional collection banner |
+| isActive | ✅ | Hide when inactive |
+| isFeatured | | Show on homepage / dedicated section (phase 2) |
+| sortOrder | | Manual ordering among collections |
+
+**Collection products (nested):**
+
+- Add/remove products from any category.
+- Reorder products within the collection (drag).
+- Optional per-collection `compareAtPrice` override is **out of scope** — pricing comes from the product.
+
+**Storefront:** Collections render as horizontal scroll rows or a dedicated nav section; products can belong to multiple collections and one primary category.
+
+---
+
+### 5.8 Menu — Combos — `/vendor/menu/combos`
 
 **Purpose:** Bundle deals.
 
@@ -506,7 +588,7 @@ Each transition writes to `OrderStatusHistory`.
 
 ---
 
-### 5.8 Menu — Tags — `/vendor/menu/tags`
+### 5.9 Menu — Tags — `/vendor/menu/tags`
 
 **Purpose:** Product labels (e.g. "Bestseller", "New").
 
@@ -514,7 +596,7 @@ Each transition writes to `OrderStatusHistory`.
 
 ---
 
-### 5.9 Menu — Allergens — `/vendor/menu/allergens`
+### 5.10 Menu — Allergens — `/vendor/menu/allergens`
 
 **Purpose:** Allergen library for products.
 
@@ -522,7 +604,7 @@ Each transition writes to `OrderStatusHistory`.
 
 ---
 
-### 5.10 Promotions — `/vendor/promotions`
+### 5.11 Promotions — `/vendor/promotions`
 
 **Purpose:** Discount and promo code management (`Discount` model).
 
@@ -534,18 +616,104 @@ Each transition writes to `OrderStatusHistory`.
 |-------|-------|
 | name, description, code | Code optional for automatic discounts |
 | type | PERCENTAGE, FIXED_AMOUNT, FREE_DELIVERY, BOGO, BUY_X_GET_Y |
-| scope | ORDER, CATEGORY, PRODUCT, DELIVERY |
+| scope | ORDER, CATEGORY, PRODUCT, COLLECTION, DELIVERY |
 | value | Interpretation depends on type |
 | buyQuantity / getQuantity | For BOGO / BUY_X_GET_Y |
 | minOrderAmount, maxDiscountAmount | Constraints |
 | usageLimit, usageCount | Read-only count |
 | isActive, isAutomatic | |
 | startsAt, endsAt | Schedule |
-| categories / products | When scope is CATEGORY or PRODUCT |
+| categories / products / collections | When scope is CATEGORY, PRODUCT, or COLLECTION (*schema addition*) |
+
+**Actions:** Create, edit, activate/deactivate, duplicate, delete. Preview estimated discount on a sample cart (nice-to-have).
+
+**Storefront:** Automatic discounts apply at cart/checkout; code-based discounts accept promo code on checkout.
 
 ---
 
-### 5.11 Tax — `/vendor/tax`
+### 5.12 Branches & delivery areas — `/vendor/branches`
+
+**Purpose:** Manage multiple physical locations and their delivery zones — replaces hardcoded `lib/locations.ts` per tenant.
+
+**List columns:** branch name, address (short), area count, active, orders today (optional widget).
+
+**Branch form**
+
+| Field | Required | Notes |
+|-------|:--------:|-------|
+| name | ✅ | e.g. "Gulberg", "DHA" |
+| slug | ✅ | Unique per tenant; used in checkout location selector |
+| address | | Full address for pickup orders |
+| phone | | Branch contact |
+| isActive | ✅ | Inactive branches hidden from storefront |
+| sortOrder | | Display order in location picker |
+
+**Delivery areas (nested per branch)**
+
+| Field | Required | Notes |
+|-------|:--------:|-------|
+| name | ✅ | e.g. "MM Alam Road", "Phase 5" |
+| slug | ✅ | Unique within branch |
+| deliveryFee | | Override tenant default; nullable = use default |
+| minOrderAmount | | Optional minimum for delivery to this area |
+| isActive | ✅ | |
+
+**Actions:** Create, edit, reorder branches and areas, activate/deactivate. Cannot delete a branch with open orders — deactivate instead.
+
+**Order integration:** Live queue and order detail show branch + area. Status transitions unchanged; branch is informational for routing unless multi-kitchen workflows are added later.
+
+**Permissions:** Owner full CRUD; staff read-only (optional).
+
+---
+
+### 5.13 Storefront — Theme & branding — `/vendor/storefront/theme`
+
+**Purpose:** Per-tenant visual identity on the customer-facing site.
+
+**Sections**
+
+| Section | Fields / behavior |
+|---------|-------------------|
+| Brand | Logo URL (`Tenant.logoUrl` or settings), favicon URL, display name override |
+| Colors | `primary`, `secondary`, `background`, `foreground`, `menu-accent` — color pickers with live preview panel |
+| Preset | Apply a platform preset (from admin) as starting point, then customize |
+| Typography | Font family selection from curated list (v1: Geist only; v2: 2–3 Google Font options) |
+| Advanced | Custom CSS disabled in v1 (security) |
+
+**Preview:** Split-pane or modal showing storefront header + product card with applied theme before save.
+
+**Persistence:** `TenantTheme` model or `TenantSettings.theme` JSON — see §6.
+
+**Constraints:** WCAG contrast warning if primary on background fails AA (advisory, not blocking).
+
+---
+
+### 5.14 Storefront — Hero carousel — `/vendor/storefront/hero`
+
+**Purpose:** Manage homepage hero swiper slides — replaces hardcoded `CAROUSEL_IMAGES` in `components/storefront/hero.tsx`.
+
+**List:** thumbnail, title, sort order, active, link URL, schedule (starts/ends).
+
+**Slide form**
+
+| Field | Required | Notes |
+|-------|:--------:|-------|
+| imageUrl | ✅ | Desktop banner; recommend 21:9 aspect |
+| mobileImageUrl | | Optional crop for small screens |
+| altText | ✅ | Accessibility |
+| title / subtitle | | Optional overlay text on storefront (phase 2) |
+| linkUrl | | Optional CTA — internal (`/#cat-…`) or external |
+| sortOrder | ✅ | Drag reorder in list |
+| isActive | ✅ | |
+| startsAt / endsAt | | Schedule seasonal promos |
+
+**Actions:** Add slide, edit, reorder (drag), activate/deactivate, delete. Respect platform `defaults.max_hero_slides` cap.
+
+**Storefront:** `Hero` component loads slides from DB for the resolved tenant; autoplay, pagination, and arrows unchanged.
+
+---
+
+### 5.15 Tax — `/vendor/tax`
 
 **Purpose:** Tax category management (`TaxCategory`).
 
@@ -555,7 +723,7 @@ Each transition writes to `OrderStatusHistory`.
 
 ---
 
-### 5.12 Customers — `/vendor/customers`
+### 5.16 Customers — `/vendor/customers`
 
 **Purpose:** Customers who have ordered from this tenant.
 
@@ -567,7 +735,7 @@ Each transition writes to `OrderStatusHistory`.
 
 ---
 
-### 5.13 Team — `/vendor/team`
+### 5.17 Team — `/vendor/team`
 
 **Purpose:** Staff access for the tenant.
 
@@ -581,24 +749,24 @@ Each transition writes to `OrderStatusHistory`.
 
 ---
 
-### 5.14 Store Settings — `/vendor/settings`
+### 5.18 Store Settings — `/vendor/settings`
 
-**Purpose:** Tenant profile and storefront configuration.
+**Purpose:** Tenant profile and operational defaults (theme, hero, and branches live in dedicated modules — §5.12–§5.14).
 
 **Sections:**
 
 | Section | Fields |
 |---------|--------|
 | General | `Tenant.name`, `Tenant.slug` (read-only after create), `Tenant.status` (read-only for vendor) |
-| Domains | List `TenantDomain` — view only for vendor in v1 |
-| Storefront | Logo, hero images (*future media model*) |
-| Order defaults | Default prep time, delivery fee (*currently hardcoded in checkout*) |
-| Branches & areas | **Future** — migrate `lib/locations.ts` to DB |
-| Notifications | Email/SMS toggles (future) |
+| Domains | List `TenantDomain` — view only for vendor in v1; request custom domain (future workflow) |
+| Order defaults | Default prep time, default delivery fee, default tax behavior |
+| Checkout | Min order amount, guest checkout toggle, order notes enabled |
+| Notifications | Email/SMS toggles for new orders (future) |
+| Storefront links | Quick links to Theme, Hero, and Branches modules |
 
 ---
 
-### 5.15 Reports — `/vendor/reports`
+### 5.19 Reports — `/vendor/reports`
 
 | Report | Description |
 |--------|-------------|
@@ -608,6 +776,8 @@ Each transition writes to `OrderStatusHistory`.
 | Category performance | Revenue per category |
 | Discount performance | Redemption and cost |
 | Peak hours | Orders by hour of day |
+| Branch performance | Orders and revenue per branch/area |
+| Collection performance | Views and sales attributed to collections (when tracking added) |
 
 **Export:** CSV per report.
 
@@ -621,10 +791,15 @@ These are **not** in the schema today but referenced by the storefront or dashbo
 |-----|--------|-----------------|
 | Branches & delivery areas | Location selector, order routing | `Branch`, `DeliveryArea` per tenant |
 | Order type (pickup vs delivery) | Order queue, reports | `Order.orderType` enum |
-| Branch on order | Per-location fulfillment | `Order.branchId` |
+| Branch & area on order | Per-location fulfillment | `Order.branchId`, `Order.deliveryAreaId` |
 | Store settings / delivery fee | Checkout, vendor settings | `TenantSettings` JSON or columns |
+| Per-tenant theme | Storefront colors, branding | `TenantTheme` or `TenantSettings.theme` JSON |
+| Hero carousel slides | Homepage swiper | `HeroSlide` — `tenantId`, `imageUrl`, `sortOrder`, `isActive`, schedule fields |
+| Collections | Curated merchandising groups | `Collection`, `CollectionProduct` (productId, sortOrder) |
+| Discount scope: collection | Promo on a curated set | Extend `DiscountScope` with `COLLECTION` + `DiscountCollection` join |
 | User `isActive` | Deactivate staff/admin | `User.isActive` boolean |
-| Media library | Product images, logos | `MediaAsset` or external storage URLs only in v1 |
+| Media library | Product images, logos, hero | `MediaAsset` or external storage URLs only in v1 |
+| Platform theme presets | Admin defaults for new tenants | `ThemePreset` or `PlatformSetting` JSON array |
 
 ---
 
@@ -650,9 +825,12 @@ lib/actions/
     ├── orders.ts
     ├── categories.ts
     ├── products.ts
-    ├── modifiers.ts
+    ├── modifiers.ts       # add-ons
+    ├── collections.ts
     ├── combos.ts
     ├── discounts.ts
+    ├── branches.ts
+    ├── storefront.ts      # theme + hero slides
     ├── tax.ts
     └── team.ts
 ```
@@ -671,7 +849,9 @@ Log to `AuditLog` on:
 - Tenant create/update/suspend
 - User create/role change
 - Order status change
-- Product/discount create/update/delete
+- Product/discount/collection create/update/delete
+- Branch and hero slide create/update/delete
+- Theme changes on tenant
 
 ### 7.5 Validation
 
@@ -717,22 +897,31 @@ Recommended order — each phase is one or more PRs.
 
 - [ ] Tax categories
 - [ ] Promotions / discounts (all types)
+- [ ] Collections CRUD + product assignment
 - [ ] Vendor reports (sales, top products)
 
-### Phase 5 — Vendor admin
+### Phase 5 — Vendor locations & storefront
+
+- [ ] Branches & delivery areas CRUD (DB migration + storefront location picker)
+- [ ] Theme & branding editor with live preview
+- [ ] Hero carousel slide management
+- [ ] Wire storefront `Hero` and CSS variables to tenant config
+
+### Phase 6 — Vendor admin
 
 - [ ] Team management
 - [ ] Store settings
 - [ ] Customer list (from orders)
 
-### Phase 6 — Super admin core
+### Phase 7 — Super admin core
 
 - [ ] Admin overview
-- [ ] Tenants CRUD
+- [ ] Tenants CRUD + storefront snapshot on tenant detail
 - [ ] Domains management
 - [ ] Users management
+- [ ] Platform theme presets
 
-### Phase 7 — Super admin ops
+### Phase 8 — Super admin ops
 
 - [ ] Cross-tenant orders view
 - [ ] Customers view
@@ -740,19 +929,20 @@ Recommended order — each phase is one or more PRs.
 - [ ] Audit log viewer
 - [ ] Platform reports
 
-### Phase 8 — Enhancements
+### Phase 9 — Enhancements
 
 - [ ] Realtime order updates (SSE/WebSocket)
 - [ ] CSV exports
-- [ ] Branches/areas DB migration + vendor UI
 - [ ] Payment provider integration UI
-- [ ] Email notifications
+- [ ] Email / SMS notifications
+- [ ] Image upload to object storage (replace URL-only fields)
+- [ ] Collection and hero analytics
 
 ---
 
 ## 9. Page checklist (quick reference)
 
-### Super Admin — 14 pages
+### Super Admin — 15 pages
 
 | # | Route | Page |
 |---|-------|------|
@@ -772,7 +962,7 @@ Recommended order — each phase is one or more PRs.
 | 14 | `/admin/audit-log` | Audit log |
 | 15 | `/admin/reports` | Reports |
 
-### Vendor — 22+ pages
+### Vendor — 32+ pages
 
 | # | Route | Page |
 |---|-------|------|
@@ -787,20 +977,29 @@ Recommended order — each phase is one or more PRs.
 | 9 | `/vendor/menu/products` | Product list |
 | 10 | `/vendor/menu/products/new` | Create product |
 | 11 | `/vendor/menu/products/[id]` | Edit product |
-| 12 | `/vendor/menu/modifiers` | Modifier groups |
-| 13 | `/vendor/menu/modifiers/[id]` | Edit group + options |
-| 14 | `/vendor/menu/combos` | Combo list |
-| 15 | `/vendor/menu/combos/[id]` | Edit combo |
-| 16 | `/vendor/menu/tags` | Tags |
-| 17 | `/vendor/menu/allergens` | Allergens |
-| 18 | `/vendor/promotions` | Discount list |
-| 19 | `/vendor/promotions/[id]` | Edit discount |
-| 20 | `/vendor/tax` | Tax categories |
-| 21 | `/vendor/customers` | Customer list |
-| 22 | `/vendor/customers/[id]` | Customer detail |
-| 23 | `/vendor/team` | Team members |
-| 24 | `/vendor/settings` | Store settings |
-| 25 | `/vendor/reports` | Reports |
+| 12 | `/vendor/menu/add-ons` | Add-on groups (modifiers) |
+| 13 | `/vendor/menu/add-ons/[id]` | Edit group + options |
+| 14 | `/vendor/menu/collections` | Collection list |
+| 15 | `/vendor/menu/collections/new` | Create collection |
+| 16 | `/vendor/menu/collections/[id]` | Edit collection + products |
+| 17 | `/vendor/menu/combos` | Combo list |
+| 18 | `/vendor/menu/combos/[id]` | Edit combo |
+| 19 | `/vendor/menu/tags` | Tags |
+| 20 | `/vendor/menu/allergens` | Allergens |
+| 21 | `/vendor/promotions` | Discount list |
+| 22 | `/vendor/promotions/new` | Create discount |
+| 23 | `/vendor/promotions/[id]` | Edit discount |
+| 24 | `/vendor/branches` | Branch list |
+| 25 | `/vendor/branches/new` | Create branch |
+| 26 | `/vendor/branches/[id]` | Edit branch + delivery areas |
+| 27 | `/vendor/storefront/theme` | Theme & branding |
+| 28 | `/vendor/storefront/hero` | Hero carousel slides |
+| 29 | `/vendor/tax` | Tax categories |
+| 30 | `/vendor/customers` | Customer list |
+| 31 | `/vendor/customers/[id]` | Customer detail |
+| 32 | `/vendor/team` | Team members |
+| 33 | `/vendor/settings` | Store settings |
+| 34 | `/vendor/reports` | Reports |
 
 ---
 
@@ -813,6 +1012,10 @@ Recommended order — each phase is one or more PRs.
 | 3 | Staff invite flow: email magic link or manual password? | Manual password v1; invite link later |
 | 4 | Product images: upload to Supabase Storage or URL only? | URL v1; storage in Phase 8 |
 | 5 | Currency / locale | Single currency (USD) v1 |
+| 6 | Collections vs categories | **Collections** = merchandising; **categories** = menu structure; a product can be in both |
+| 7 | Theme: preset-only vs full custom? | **Recommend** preset + per-color overrides (not arbitrary CSS) |
+| 8 | Hero slides: image upload v1? | URL-only v1 (same as product images); storage in Phase 9 |
+| 9 | Branch delete with historical orders? | **Deactivate only** — never hard-delete branches with orders |
 
 ---
 
@@ -839,6 +1042,8 @@ Each implementation step should satisfy:
 | `lib/auth/session.ts` | Session pattern to extend |
 | `lib/tenant.ts` | Tenant resolution |
 | `lib/locations.ts` | Branches (to migrate) |
+| `components/storefront/hero.tsx` | Hero carousel (to migrate to DB-driven) |
+| `app/globals.css` | Theme CSS variables (to become per-tenant) |
 | `app/(storefront)/` | Customer-facing reference UX |
 
 ---
