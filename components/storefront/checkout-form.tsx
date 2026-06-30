@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Loader2, Tag } from "lucide-react";
+import { CartLoadingState } from "@/components/storefront/cart-loading";
 import { placeOrder } from "@/lib/actions/orders";
 import { useCart } from "@/context/cart-context";
 import { formatCurrency } from "@/lib/format";
@@ -17,8 +18,9 @@ type CheckoutFormProps = {
 
 export function CheckoutForm({ taxRate }: CheckoutFormProps) {
   const router = useRouter();
-  const { items, subtotal, clearCart, getLineTotal } = useCart();
-  const [isPending, startTransition] = useTransition();
+  const { items, subtotal, clearCart, getLineTotal, isHydrated } = useCart();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [redirectingTo, setRedirectingTo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [promoCode, setPromoCode] = useState("");
 
@@ -36,8 +38,9 @@ export function CheckoutForm({ taxRate }: CheckoutFormProps) {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setIsSubmitting(true);
 
-    startTransition(async () => {
+    void (async () => {
       const result = await placeOrder(items, {
         ...form,
         promoCode: promoCode || undefined,
@@ -45,12 +48,30 @@ export function CheckoutForm({ taxRate }: CheckoutFormProps) {
 
       if (!result.success) {
         setError(result.error);
+        setIsSubmitting(false);
         return;
       }
 
+      setRedirectingTo(result.orderNumber);
       clearCart();
-      router.push(`/order/${result.orderNumber}`);
-    });
+      router.replace(`/order/${result.orderNumber}`);
+    })();
+  }
+
+  if (!isHydrated) {
+    return <CartLoadingState message="Preparing checkout…" />;
+  }
+
+  if (isSubmitting || redirectingTo) {
+    return (
+      <CartLoadingState
+        message={
+          redirectingTo
+            ? "Order placed! Taking you to your order…"
+            : "Placing your order…"
+        }
+      />
+    );
   }
 
   if (items.length === 0) {
@@ -241,10 +262,10 @@ export function CheckoutForm({ taxRate }: CheckoutFormProps) {
 
           <button
             type="submit"
-            disabled={isPending}
+            disabled={isSubmitting}
             className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-full bg-amber-500 text-sm font-semibold text-white transition hover:bg-amber-600 disabled:opacity-70"
           >
-            {isPending ? (
+            {isSubmitting ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Placing order...

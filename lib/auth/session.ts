@@ -1,68 +1,35 @@
-import { createHmac, timingSafeEqual } from "crypto";
 import { cookies } from "next/headers";
+import { CUSTOMER_SESSION_COOKIE } from "@/lib/auth/cookie-names";
+import {
+  createSignedToken,
+  SESSION_MAX_AGE,
+  sessionCookieOptions,
+  verifySignedToken,
+} from "@/lib/auth/session-core";
 
-const COOKIE_NAME = "fiesta-customer-session";
-const MAX_AGE = 60 * 60 * 24 * 30; // 30 days
-
-function getSecret() {
-  return process.env.AUTH_SECRET ?? "dev-auth-secret-change-in-production";
-}
+const COOKIE_NAME = CUSTOMER_SESSION_COOKIE;
 
 type SessionPayload = {
   userId: string;
   exp: number;
 };
 
-function sign(data: string): string {
-  return createHmac("sha256", getSecret()).update(data).digest("base64url");
-}
-
 export function createSessionToken(userId: string): string {
-  const payload: SessionPayload = {
+  return createSignedToken<SessionPayload>({
     userId,
-    exp: Date.now() + MAX_AGE * 1000,
-  };
-  const data = Buffer.from(JSON.stringify(payload)).toString("base64url");
-  return `${data}.${sign(data)}`;
+    exp: Date.now() + SESSION_MAX_AGE * 1000,
+  });
 }
 
 export function verifySessionToken(token: string): SessionPayload | null {
-  const [data, signature] = token.split(".");
-  if (!data || !signature) return null;
-
-  const expected = sign(data);
-  try {
-    const sigBuf = Buffer.from(signature);
-    const expBuf = Buffer.from(expected);
-    if (sigBuf.length !== expBuf.length || !timingSafeEqual(sigBuf, expBuf)) {
-      return null;
-    }
-  } catch {
-    return null;
-  }
-
-  try {
-    const payload = JSON.parse(
-      Buffer.from(data, "base64url").toString("utf8"),
-    ) as SessionPayload;
-    if (!payload.userId || !payload.exp || payload.exp < Date.now()) {
-      return null;
-    }
-    return payload;
-  } catch {
-    return null;
-  }
+  const payload = verifySignedToken<SessionPayload>(token);
+  if (!payload?.userId) return null;
+  return payload;
 }
 
 export async function setSessionCookie(userId: string) {
   const cookieStore = await cookies();
-  cookieStore.set(COOKIE_NAME, createSessionToken(userId), {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: MAX_AGE,
-    path: "/",
-  });
+  cookieStore.set(COOKIE_NAME, createSessionToken(userId), sessionCookieOptions());
 }
 
 export async function clearSessionCookie() {

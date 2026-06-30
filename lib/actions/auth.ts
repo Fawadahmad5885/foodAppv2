@@ -2,12 +2,11 @@
 
 import { PlatformRole } from "@prisma/client";
 import { compare, hash } from "bcryptjs";
+import { setAdminSessionCookie } from "@/lib/auth/admin-session";
+import { setSessionCookie, clearSessionCookie, getSessionUserId } from "@/lib/auth/session";
+import { setVendorSessionCookie } from "@/lib/auth/vendor-session";
+import { resolveVendorTenantId } from "@/lib/auth/resolve-vendor-tenant";
 import { db } from "@/lib/db";
-import {
-  clearSessionCookie,
-  getSessionUserId,
-  setSessionCookie,
-} from "@/lib/auth/session";
 
 export type AuthUser = {
   id: string;
@@ -17,8 +16,13 @@ export type AuthUser = {
 };
 
 export type SignInResult =
-  | { success: true; user: AuthUser }
-  | { success: false; error: "USER_NOT_FOUND" | "INVALID_PASSWORD" | "NOT_CUSTOMER" };
+  | { success: true; kind: "customer"; user: AuthUser }
+  | { success: true; kind: "admin"; redirectTo: "/admin" }
+  | { success: true; kind: "vendor"; redirectTo: "/vendor" }
+  | {
+      success: false;
+      error: "USER_NOT_FOUND" | "INVALID_PASSWORD" | "NO_ACTIVE_TENANT";
+    };
 
 export type SignUpResult =
   | { success: true; user: AuthUser }
@@ -59,6 +63,11 @@ export async function signIn(
       phone: true,
       passwordHash: true,
       platformRole: true,
+      memberships: {
+        include: {
+          tenant: { select: { id: true, status: true, slug: true } },
+        },
+      },
     },
   });
 
@@ -66,12 +75,29 @@ export async function signIn(
     return { success: false, error: "USER_NOT_FOUND" };
   }
 
-  if (user.platformRole !== PlatformRole.CUSTOMER) {
-    return { success: false, error: "NOT_CUSTOMER" };
-  }
-
   const valid = await compare(password, user.passwordHash);
   if (!valid) {
+    return { success: false, error: "INVALID_PASSWORD" };
+  }
+
+  if (user.platformRole === PlatformRole.SUPER_ADMIN) {
+    await setAdminSessionCookie(user.id);
+    return { success: true, kind: "admin", redirectTo: "/admin" };
+  }
+
+  if (
+    user.platformRole === PlatformRole.VENDOR_OWNER ||
+    user.platformRole === PlatformRole.VENDOR_STAFF
+  ) {
+    const tenantId = resolveVendorTenantId(user.memberships);
+    if (!tenantId) {
+      return { success: false, error: "NO_ACTIVE_TENANT" };
+    }
+    await setVendorSessionCookie(user.id, tenantId);
+    return { success: true, kind: "vendor", redirectTo: "/vendor" };
+  }
+
+  if (user.platformRole !== PlatformRole.CUSTOMER) {
     return { success: false, error: "INVALID_PASSWORD" };
   }
 
@@ -79,6 +105,7 @@ export async function signIn(
 
   return {
     success: true,
+    kind: "customer",
     user: { id: user.id, email: user.email, name: user.name, phone: user.phone },
   };
 }

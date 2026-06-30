@@ -33,6 +33,8 @@ type CartContextValue = {
   items: CartLineItem[];
   itemCount: number;
   subtotal: number;
+  /** False until cart has been read from localStorage on the client. */
+  isHydrated: boolean;
   isCartOpen: boolean;
   openCart: () => void;
   closeCart: () => void;
@@ -130,6 +132,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       items,
       itemCount: items.reduce((sum, i) => sum + i.quantity, 0),
       subtotal: calculateCartSubtotal(items),
+      isHydrated: hydrated,
       isCartOpen,
       openCart: () => setIsCartOpen(true),
       closeCart: () => setIsCartOpen(false),
@@ -140,7 +143,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       clearCart,
       getLineTotal: calculateLineTotal,
     }),
-    [items, isCartOpen, addItem, updateQuantity, removeItem, clearCart],
+    [items, hydrated, isCartOpen, addItem, updateQuantity, removeItem, clearCart],
   );
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;

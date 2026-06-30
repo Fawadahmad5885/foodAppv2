@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { ArrowLeft, Minus, Plus, ShoppingBag, Trash2 } from "lucide-react";
+import { CartLoadingState } from "@/components/storefront/cart-loading";
 import { useCart } from "@/context/cart-context";
 import { formatCurrency } from "@/lib/format";
 
@@ -16,9 +17,14 @@ export function CartPageContent() {
     removeItem,
     getLineTotal,
     itemCount,
+    isHydrated,
   } = useCart();
 
   const estimatedTotal = subtotal + DELIVERY_FEE;
+
+  if (!isHydrated) {
+    return <CartLoadingState />;
+  }
 
   if (items.length === 0) {
     return (

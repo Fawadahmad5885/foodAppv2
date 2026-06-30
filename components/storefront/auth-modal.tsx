@@ -1,8 +1,10 @@
 "use client";
 
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import { Loader2, X } from "lucide-react";
 import { signIn, signUp } from "@/lib/actions/auth";
+import { resolveAuthRedirect } from "@/lib/auth/redirect";
 import { useAuth } from "@/context/auth-context";
 
 export function AuthModal() {
@@ -20,6 +22,9 @@ export function AuthModal() {
   const [phone, setPhone] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectParam = searchParams.get("redirect");
 
   useEffect(() => {
     if (!isAuthModalOpen) return;
@@ -54,8 +59,19 @@ export function AuthModal() {
       const result = await signIn(email, password);
 
       if (result.success) {
-        setUser(result.user);
         closeAuthModal();
+
+        if (result.kind === "customer") {
+          setUser(result.user);
+          return;
+        }
+
+        const destination = resolveAuthRedirect(
+          redirectParam,
+          result.redirectTo,
+        );
+        router.push(destination);
+        router.refresh();
         return;
       }
 
@@ -65,8 +81,8 @@ export function AuthModal() {
         return;
       }
 
-      if (result.error === "NOT_CUSTOMER") {
-        setError("This account cannot be used for customer sign-in.");
+      if (result.error === "NO_ACTIVE_TENANT") {
+        setError("No active store is assigned to this account.");
         return;
       }
 
@@ -133,7 +149,7 @@ export function AuthModal() {
           </h2>
           <p className="mt-1 text-sm text-stone-700/80">
             {isSignIn
-              ? "Sign in to track orders and checkout faster"
+              ? "Sign in to order, manage your store, or access the admin dashboard"
               : "Join Fiestaa to save your details for next time"}
           </p>
         </div>

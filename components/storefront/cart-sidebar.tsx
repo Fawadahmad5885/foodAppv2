@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Minus, Plus, ShoppingBag, Trash2, X } from "lucide-react";
+import { Minus, Plus, ShoppingBag, Trash2, X, Loader2 } from "lucide-react";
 import { useCart } from "@/context/cart-context";
 import { formatCurrency } from "@/lib/format";
 
@@ -18,6 +18,7 @@ export function CartSidebar() {
     updateQuantity,
     removeItem,
     getLineTotal,
+    isHydrated,
   } = useCart();
 
   const estimatedTotal = subtotal + DELIVERY_FEE;
@@ -60,7 +61,12 @@ export function CartSidebar() {
           </button>
         </div>
 
-        {items.length === 0 ? (
+        {!isHydrated ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6">
+            <Loader2 className="h-7 w-7 animate-spin text-amber-500" />
+            <p className="text-sm text-stone-500">Loading cart…</p>
+          </div>
+        ) : items.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
             <div className="flex h-16 w-16 items-center justify-center rounded-full bg-stone-100">
               <ShoppingBag className="h-7 w-7 text-stone-400" />
